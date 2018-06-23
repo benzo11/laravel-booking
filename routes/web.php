@@ -15,10 +15,13 @@ use Illuminate\Http\Request;
 
 use App\Room;
 use App\Booking;
+use App\Extra;
 use App\Guest;
 use App\User;
 use App\Role;
 use App\Note;
+
+use App\Events\BookingDeletedEvent;
 
 use App\Http\Controllers\PlanningController;
 
@@ -27,22 +30,11 @@ use Carbon\Carbon;
 Auth::routes();
 
 Route::middleware(['auth'])->group(function () {
-    Route::get('/', function () {
-        $bookings = PlanningController::getBookings(2);
+    Route::get('/', 'PlanningController@upcoming')->name('welcome');
 
-        $leaving = Booking::
-            where('departure', Carbon::parse('today'))
-            ->join('guests', 'guests.id', '=', 'bookings.customer_id')
-            ->select('bookings.*', 'guests.firstname', 'guests.lastname')
-            ->orderBy('guests.lastname')
-            ->get();
-
-        return view('welcome', [
-            "bookings" => $bookings,
-            "leaving" => $leaving
-        ]);
-    })->name('welcome');
-
+    /**
+     * PLANNING
+     */
     Route::prefix('planning')->group(function () {
 
         Route::get('/', function (Request $request) {
@@ -68,8 +60,8 @@ Route::middleware(['auth'])->group(function () {
                     $query
                     ->with('customer')
                     ->with('extraGuests')
-                    ->where('arrival', '<=', $dates[6]['date'])
-                    ->where('departure', '>=', $dates[0]['date']);
+                    ->whereDate('arrival', '<=', $dates[6]['date'])
+                    ->whereDate('departure', '>=', $dates[0]['date']);
                 }])
                 ->get();
 
@@ -80,7 +72,7 @@ Route::middleware(['auth'])->group(function () {
             ]);
         })->name('planning');
 
-        Route::post('goto_date', function(Request $request) {
+        Route::post('goto_date', function (Request $request) {
             $date = Carbon::parse($request->input('goto_date', "now"))->toDateString();
             return redirect()->route('planning', ['date' => $date]);
         })->name('planning.change_date');
@@ -108,7 +100,7 @@ Route::middleware(['auth'])->group(function () {
         Route::post('nieuw', 'PlanningController@createBooking')
             ->middleware('can:add.booking');
 
-        Route::get('edit/{booking}', function(Booking $booking) {
+        Route::get('edit/{booking}', function (Booking $booking) {
             $countries = CountryList::all(app()->getLocale());
 
             // move most common picks to front of array
@@ -145,15 +137,23 @@ Route::middleware(['auth'])->group(function () {
             $countries = PlanningController::getCountryList('nl_BE');
             $guests = Guest::orderBy('lastname')->get();
             $booking->load(['rooms', 'customer']);
-            return view('planning.show', ["booking" => $booking, 'guests' => $guests, 'countries' => $countries]);
+            return view('planning.show', [
+                "booking" => $booking,
+                'guests' => $guests,
+                'countries' => $countries,
+                'extras' => Extra::all()]);
         })->name('booking.show')->where('booking', '[0-9]+');
 
         Route::get('del/{booking}', function (App\Booking $booking) {
-            $arrival = $booking->arrival->toDateString();
+            $arrival = $booking->arrival;
+            $departure = $booking->departure;
+            $room = $booking->rooms[0];
 
             $booking->delete();
 
-            return redirect()->route('planning', ['date' => $arrival]);
+            event(new BookingDeletedEvent($room, $arrival, $departure));
+
+            return redirect()->route('planning', ['date' => $arrival->toDateString()]);
         })->name('booking.delete');
 
         Route::get('getGuests', 'AjaxController@getGuests')
@@ -166,15 +166,24 @@ Route::middleware(['auth'])->group(function () {
             ->name('booking.search');
 
         Route::post('addExtraGuest', 'AjaxController@addExtraGuest');
-        Route::get('{booking}/del-extra/{guest}', 'PlanningController@delExtraGuest')
+        Route::get('{booking}/del-extra-guest/{guest}', 'PlanningController@delExtraGuest')
             ->name('booking.extra.delete');
 
+        Route::post('addExtra', 'ExtraController@addExtra');
+        Route::get('{booking}/del-extra/{extra}', 'PlanningController@delExtra')
+            ->name('booking.extras.delete');
+
         Route::get('export-emails', 'ExportController@exportEmails')->name('export.email');
+
+        Route::get('print', 'PrintController@print')->name('print');
     });
 
-    Route::middleware(['can:edit.all'])->prefix('gast')->group(function() {
+    /**
+     * GUESTS
+     */
+    Route::middleware(['can:edit.all'])->prefix('gast')->group(function () {
 
-        Route::get('edit/{booking}/{guest}', function(App\Booking $booking, App\Guest $guest) {
+        Route::get('edit/{booking}/{guest}', function (App\Booking $booking, App\Guest $guest) {
             $countries = CountryList::all(app()->getLocale());
 
             // move most common picks to front of array
@@ -208,7 +217,10 @@ Route::middleware(['auth'])->group(function () {
         })->name('guest.delete');
     });
 
-    Route::middleware('can:edit.all')->prefix('kamers')->group(function() {
+    /**
+     * ROOMS
+     */
+    Route::middleware('can:edit.all')->prefix('kamers')->group(function () {
         Route::get('/', function() {
             $rooms = Room::orderBy('sorting')->get();
             return view('rooms.index', ['rooms' => $rooms]);
@@ -265,10 +277,41 @@ Route::middleware(['auth'])->group(function () {
         })->name('room.sort.down');
     });
 
-    Route::get('extras', function() {
-        return view('welcome');
-    })->name('extra')->middleware('can:edit.all');
+    /**
+     * EXTRAS
+     */
+    Route::middleware('can:edit.all')->prefix('extras')->group(function () {
+        Route::get('/', 'ExtraController@index')->name('extra');
 
+        Route::get('new', function () {
+            return view('extra.create');
+        })->name('extra.create');
+
+        Route::post('new', 'ExtraController@createExtra');
+
+        Route::get('edit/{extra}', function (Extra $extra) {
+            return view('extra.create', ['extra' => $extra]);
+        })->name('extra.edit');
+
+        Route::post('edit/{extra}', 'ExtraController@editExtra');
+
+        Route::get('del/{extra}', function (Extra $extra) {
+            $extra->delete();
+
+            return redirect()->route('extra');
+        })->name('extra.delete');
+    });
+
+    /**
+     * STATS
+     */
+    Route::middleware('can:edit.all')->prefix('stats')->group(function () {
+        Route::get('/', 'StatsController@index')->name('stats');
+    });
+
+    /**
+     * ADMIN
+     */
     Route::middleware('can:access.admin')->prefix('admin')->group(function () {
         Route::get('/', function () {
             $rooms = Room::orderBy('sorting')->get();
@@ -308,6 +351,9 @@ Route::middleware(['auth'])->group(function () {
         });
     });
 
+    /**
+     * WEEKLY NOTES
+     */
     Route::middleware(['can:edit.all'])->prefix('notes')->group(function () {
         Route::post('save', 'AjaxController@saveNote');
     });

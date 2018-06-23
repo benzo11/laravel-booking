@@ -1,5 +1,9 @@
 @extends('layout.base')
 
+@section('title', 'Planning - ' . $dates[0]['date']->format('d-m-Y'))
+
+@php $planning_table = true; @endphp
+
 @section('content')
 <h1>Planning</h1>
 
@@ -23,7 +27,7 @@
 
     <div>
       <a href="{{ route('export.email', ['date' => $dates[0]['date']->toDateString()]) }}" class="btn btn-secondary mb-2">Export emailadressen</a>
-      <a href="#" id="printBtn" class="btn btn-secondary mb-2">Print <i class="fas fa-print fa-sm"></i></a>
+      <a href="{{ route('print', ['date' => $dates[0]['date']->toDateString()]) }}" class="btn btn-secondary mb-2">Print <i class="fas fa-print fa-sm"></i></a>
       @can('add.booking')
       <a href="{{ route('booking.create') }}?date={{ $dates[0]['date']->toDateString() }}" class="btn btn-success mb-2">Nieuwe boeking</a>
       @endcan
@@ -73,7 +77,18 @@
               class="booked @if ($booking->color()['luma'] > 180.0) reversed @endif"
               style="background-color: {{ $booking->color()['color'] }}">
               <a href="{{ route('booking.show', $booking->id) }}">
-                {{ $booking->getGuest($i)->name }} &mdash; &euro;&nbsp;{{ $booking->deposit }}</a>
+                {{ $booking->getGuest($i)->name }}
+                @if ($booking->isFirst($i))
+                  &mdash; &euro;&nbsp;{{ $booking->deposit }}
+                  @if (!$booking->extras->isEmpty())
+                    @foreach ($booking->extras as $extra)
+                        @isset($extra->icon)
+                          @if ($loop->first) &mdash; @endif
+                          {!! $extra->icon !!}
+                        @endisset
+                    @endforeach
+                  @endif
+                @endif</a>
             </td>
             @php $d += ($booking->toShow($dates)-1) @endphp
           @elseif (!$room->bookings->isEmpty() && $room->isBookedAsWhole($date['date']))

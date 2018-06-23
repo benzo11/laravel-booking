@@ -4,7 +4,7 @@
 <h1>Boeking</h1>
 
 @if ($errors->any())
-    <div class="alert alert-danger">
+    <div class="alert alert-dismissible alert-danger">
         <ul>
             @foreach ($errors->all() as $error)
                 <li>{{ $error }}</li>
@@ -13,10 +13,8 @@
     </div>
 @endif
 @if (session('error'))
-  <div class="alert alert-danger">
-    <ul>
-      <li>{{ session('error') }}</li>
-    </ul>
+  <div class="alert alert-dismissible alert-danger">
+    <p class="mb-0">{{ session('error') }}</p>
   </div>
 @endif
 
@@ -44,7 +42,7 @@
                 <option
                   @if(old('arrivalTime') === $time) selected
                   @elseif(isset($booking) && $booking->arrival->format('H:i') === $time) selected
-                  @elseif($time === '12:00') selected
+                  @elseif($time === '00:00') selected
                   @endif
                   value="{{ $time }}">{{ $time }}</option>
               @endfor

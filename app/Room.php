@@ -93,15 +93,20 @@ class Room extends Model
      *
      * @return array Returns an array of free beds in the room for specified dates
      */
-    public function findFreeBeds($booking, $part = -1)
+    public function findFreeBeds($booking, $part = -1, $as_whole = false)
     {
         // find bookings in this room with overlapping dates
         $overlap = $this->bookings()
-            ->where('arrival', '<', $booking->departure->startOfDay())
-            ->where('departure', '>', $booking->arrival->startOfDay())
+            ->whereDate('arrival', '<', $booking->departure)
+            ->whereDate('departure', '>', $booking->arrival)
             ->where('booking_id', '!=', $booking->id)
             ->get();
 
+        // when the room is being booked as whole and there's overlap
+        // it means there's other bookings, so it can't be booked as whole
+        if ($as_whole && $overlap->count() > 0) {
+            return [];
+        }
         // which beds are taken
         $beds_taken = [];
         foreach ($overlap as $o) {
@@ -128,17 +133,37 @@ class Room extends Model
         return $beds_available;
     }
 
-	public function moveUp() {
-		$higher = Room::where('sorting', '<', $this->sorting)
-					->orderBy('sorting', 'desc')->first();
-		if ($higher) {
-			$higher->sorting = $this->sorting;
-			$higher->save();
-		}
+    public function organize($arrival, $departure)
+    {
+        $bookings = $this->bookings
+            ->where('arrival', '<', $departure->startOfDay())
+            ->where('departure', '>', $arrival->startOfDay());
 
-		$this->sorting--;
-		$this->save();
-	}
+        foreach ($bookings as $booking) {
+            $options = $booking->properties->options;
+            $part = $options['part'];
+
+            $beds = $this->findFreeBeds($booking, $part);
+
+            if (count($beds) >= $booking->guests) {
+                $options['beds'] = array_slice($beds, 0, $booking->guests);
+                $this->bookings()->updateExistingPivot($booking->id, ['options' => $options]);
+            }
+        }
+    }
+
+    public function moveUp()
+    {
+        $higher = Room::where('sorting', '<', $this->sorting)
+                    ->orderBy('sorting', 'desc')->first();
+        if ($higher) {
+            $higher->sorting = $this->sorting;
+            $higher->save();
+        }
+
+        $this->sorting--;
+        $this->save();
+    }
 
 	public function moveDown() {
 		$lower = Room::where('sorting', '>', $this->sorting)

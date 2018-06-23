@@ -5,10 +5,15 @@ namespace App;
 use Illuminate\Database\Eloquent\Model;
 use Carbon\Carbon;
 
+use App\Events\BookingUpdatedEvent;
 use App\Scopes\RoleScope;
 
 class Booking extends Model
 {
+
+    protected $dispatchesEvents = [
+        'updated' => BookingUpdatedEvent::class
+    ];
 
     protected $dates = [
         'created_at',
@@ -56,6 +61,13 @@ class Booking extends Model
         }
     }
 
+    public function isFirst($bed)
+    {
+        $first_bed = $this->properties->options['beds'][0];
+        $i = $bed - $first_bed + 1;
+        return $i === 0;
+    }
+
     /**
      * get booked room(s)
      */
@@ -67,12 +79,22 @@ class Booking extends Model
             ->using('App\BookingProperties');
     }
 
+    public function extras()
+    {
+        return $this->belongsToMany('App\Extra')->withPivot('amount');
+    }
+
     /**
      * duration of booking in days
      */
-    public function days()
+    public function getDaysAttribute()
     {
-        return $this->arrival->diffInDays($this->departure);
+        return $this->arrival->startOfDay()->diffInDays($this->departure);
+    }
+
+    public function getTotalNightsAttribute()
+    {
+        return $this->days * $this->guests;
     }
 
     /**
@@ -80,12 +102,7 @@ class Booking extends Model
      */
     public function getTooltipAttribute()
     {
-        $tooltip = $this->arrival->format('H:i');
-
-        $tooltip .= ($this->composition) ? '<br />'.$this->composition : '';
-        $tooltip .= ($this->comments) ? '<br />'.$this->comments : '';
-
-        return $tooltip;
+        return view('components.tooltip', ["tooltip" => $this])->render();
     }
 
     /**
@@ -143,5 +160,12 @@ class Booking extends Model
     public function isNow()
     {
         return Carbon::parse("now")->between($this->arrival, $this->departure);
+    }
+
+    public static function getInRange($from, $to)
+    {
+        return Booking::
+            whereDate('arrival', '<=', $to)
+            ->whereDate('departure', '>=', $from);
     }
 }

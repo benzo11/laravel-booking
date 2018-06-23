@@ -8,13 +8,33 @@ use Illuminate\Support\Facades\DB;
 use Carbon\Carbon;
 
 use App\Booking;
-use App\Room;
+use App\Extra;
 use App\Guest;
+use App\Room;
 
 use CountryList;
 
 class PlanningController extends Controller
 {
+    const RECENTLY_IN_WEEKS = 2;
+
+    public function upcoming()
+    {
+        $bookings = self::getBookings(self::RECENTLY_IN_WEEKS);
+
+        $leaving = Booking::
+            whereDate('departure', Carbon::parse('today'))
+            ->join('guests', 'guests.id', '=', 'bookings.customer_id')
+            ->select('bookings.*', 'guests.firstname', 'guests.lastname')
+            ->orderBy('guests.lastname')
+            ->get();
+
+        return view('welcome', [
+            "bookings" => $bookings,
+            "leaving" => $leaving
+        ]);
+    }
+
     public function saveBooking(Request $request, Booking $booking)
     {
         $validatedData = $request->validate([
@@ -47,15 +67,20 @@ class PlanningController extends Controller
         $part = count($placement) > 1 ? (int)$placement[1] : -1;
         $guests = $request->input('guests');
 
+        $as_whole = $request->input('as_whole', 'no') === "yes" ? true : false;
+
         // only look for free beds if:
         // 1. new booking; or
         // 2. existing booking and number of guests or room changes
-        if (!$booking->exists || ($guests !== $booking->guests || $room_id !== $booking->rooms[0]->room_id)) {
+        // 3. room will be booked as whole
+        if (!$booking->exists
+            || ($guests !== $booking->guests || $room_id !== $booking->rooms[0]->room_id)
+            || $as_whole) {
             $room = Room::find($room_id);
-            $beds = $room->findFreeBeds($booking, $part);
+            $beds = $room->findFreeBeds($booking, $part, $as_whole);
 
             $options['part'] = $part;
-            $options['asWhole'] = $request->input('as_whole', 'no') === "yes" ? true : false;
+            $options['asWhole'] = $as_whole;
 
             if (count($beds) >= $guests) {
                 $booking->guests = $guests;
@@ -79,7 +104,7 @@ class PlanningController extends Controller
         } else {
             return redirect()
                 ->route('booking.edit', $booking)
-                ->with('error', 'Geen voldoende bedden')
+                ->with('error', 'Niet voldoende bedden, of de kamer kan niet volledig geboekt worden.')
                 ->withInput();
         }
     }
@@ -95,7 +120,7 @@ class PlanningController extends Controller
         } else {
             return redirect()
                 ->route('booking.create')
-                ->with('error', 'Geen voldoende bedden')
+                ->with('error', 'Niet voldoende bedden, of de kamer kan niet volledig geboekt worden.')
                 ->withInput();
         }
     }
@@ -130,6 +155,16 @@ class PlanningController extends Controller
         $booking->extraGuests()->detach($guest);
         return redirect()->route('booking.show', $booking);
     }
+
+    /**
+     * Delete extra
+     */
+    public function delExtra(Request $request, Booking $booking, Extra $extra)
+    {
+        $booking->extras()->detach($extra);
+        return redirect()->route('booking.show', $booking);
+    }
+
     /**
      * Get bookings in the following period
      *

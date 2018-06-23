@@ -9,12 +9,13 @@ use CountryList;
 class Guest extends Model
 {
 
-	// derived attribute
-	protected $appends = ['name'];
+    // derived attribute
+    protected $appends = ['name'];
 
-	public function getNameAttribute() {
-		return $this->firstname." ".$this->lastname;
-	}
+    public function getNameAttribute()
+    {
+        return $this->firstname." ".$this->lastname;
+    }
 
     /**
      * bookings for which this guest is the main customer
@@ -40,8 +41,9 @@ class Guest extends Model
         return $this->bookings->concat($this->bookingsAsGuest);
     }
 
-	public function getCountryStrAttribute() {
-		$country_str = CountryList::find($this->country, app()->getLocale());
-		return $country_str;
-	}
+    public function getCountryStrAttribute()
+    {
+        $country_str = CountryList::find($this->country, app()->getLocale());
+        return $country_str;
+    }
 }

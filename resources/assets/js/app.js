@@ -10,15 +10,15 @@ require('./bootstrap-datepicker');
 require('./bootstrap-datepicker.nl-BE.min');
 require('./jquery.floatThead');
 
-var moment = require('moment');
+const moment = require('moment');
 
 $.ajaxSetup({
-	headers: {
-		'X-CSRF-TOKEN': $('meta[name="csrf-token"]').attr('content')
-	}
+  headers: {
+    'X-CSRF-TOKEN': $('meta[name="csrf-token"]').attr('content'),
+  },
 });
 
-$(function(){
+$(() => {
     $('html').keydown(function(e){
         if ($('.btns__week').length > 0) {
             if (e.which == 37) {
@@ -187,6 +187,44 @@ $("#addExtraGuest").click(function() {
 		type: "POST",
 		success: function() {
 			$("#extraGuestModal").modal('hide');
+			location.reload();
+		},
+		error: function( xhr, status, errorThrown ) {
+			console.log( "Error: " + errorThrown );
+			console.log( "Status: " + status );
+			console.dir( xhr );
+		},
+	});
+});
+
+$('.js-add-extra').click((e) => {
+	e.preventDefault();
+	$("#extrasModal").modal();
+});
+
+$('#addExtra').click(function (e) {
+	$(this).prop("disabled", true);
+	e.preventDefault();
+
+	const bookingId = $(".new-extra-guest").data('booking-id');
+	const extraId = $('select[name="extra"]').val();
+	const amount = $('input[name="amount"]').val();
+
+	console.log({
+		booking: bookingId,
+		extra: extraId,
+		amount
+	});
+	$.ajax({
+		url: "/planning/addExtra",
+		data: {
+			booking: bookingId,
+			extra: extraId,
+			amount
+		},
+		type: "POST",
+		success: () => {
+			$("#extrasModal").modal('hide');
 			location.reload();
 		},
 		error: function( xhr, status, errorThrown ) {
